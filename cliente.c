@@ -14,7 +14,7 @@
 int main( int argc, char *argv[]){
     int sd, fin = 0;
     struct sockaddr_in sockname;
-    char buffersize[MSG_SIZE];
+    char buffer[MSG_SIZE];
     fd_set readfds, auxfds;
 
     sd = socket(AF_INET, SOCK_STREAM, 0);
