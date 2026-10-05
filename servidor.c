@@ -24,8 +24,6 @@ int main(){
     int salir = 0;
     char buffer[100];
 
-    socklen_t from_len;
-    int salir = 0;
 
     sd = socket (AF_INET, SOCK_STREAM, 0);
     // Definimos AF_INET para el tipo de direcciones IPv4
@@ -39,7 +37,7 @@ int main(){
     // definimos la informacion de la estructura del servidor para poder usar bind
     sockname.sin_family = AF_INET; // familia de direcciones
     sockname.sin_port = htons(2026); // puerto
-    sockname.sin_addr.s_addr = INADOR_ANY; // conexiones que se aceptan (INADOR_ANY: escucha de cualquier interfaz de red de la maquina)
+    sockname.sin_addr.s_addr = INADDR_ANY; // conexiones que se aceptan (INADOR_ANY: escucha de cualquier interfaz de red de la maquina)
 
     if (bind(sd, (struct sockaddr *)&sockname, sizeof(sockname)) == -1){
     // bind solo acepta formato sockaddr asi que lo casteamos
@@ -121,5 +119,3 @@ int main(){
 
 
 
-
-}
