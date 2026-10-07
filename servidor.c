@@ -81,7 +81,7 @@ void login(Cliente *c, char *cmd, char *arg)
             return;
         }
 
-        if (usuarioExiste(arg)){
+        if (existe_usuario(arg)){
             strcpy(c->nombre, arg);   // guardamos quién es
             c->estado = 1; // ahora toca la contraseña
             enviar(c->fd, "+Ok. Usuario correcto");
@@ -130,6 +130,7 @@ void procesarMensaje(Cliente *c, char *msg)
         enviar(c->fd, "-Err. Comando no reconocido");
 }
 
+int registrar_usuario(char *arg1, char *arg2){}
 
 int main(){
 
