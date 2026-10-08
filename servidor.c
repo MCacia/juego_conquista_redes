@@ -110,6 +110,37 @@ void login(Cliente *c, char *cmd, char *arg)
     }
 }
 
+int registrar_usuario(char *usuario, char *password)
+{
+FILE *f;
+if (existe_usuario(usuario)){
+    return 0; //Si el usuario existe salimos
+}
+
+//Comprobamos que usuario y contrasenna sean validos
+if (usuario[0] == '\0' || strchr(usuario, ' ') != NULL || strlen(usuario) >= MAX_USER){ 
+    return -1; 
+}
+if (password[0] == '\0' || strchr(password, ' ') != NULL || strlen(password) >= MAX_USER){ 
+    return -1; 
+}
+
+// Abrimos el fichero en modo escritura
+f = fopen(FICHERO_USUARIOS, "a");
+
+if (f == NULL){
+    return -1; 
+}
+
+// Guardamos usuario y contraseña
+fprintf(f, "%s %s\n", usuario, password);
+
+fclose(f);
+
+return 1; // Registro correcto
+}
+
+
 void procesarMensaje(Cliente *c, char *msg)
 {
     char cmd[MSG_SIZE] = "", arg[MSG_SIZE] = "";
@@ -129,8 +160,6 @@ void procesarMensaje(Cliente *c, char *msg)
     else
         enviar(c->fd, "-Err. Comando no reconocido");
 }
-
-int registrar_usuario(char *arg1, char *arg2){}
 
 int main(){
 
