@@ -57,7 +57,7 @@ int main( int argc, char *argv[]){
                 strcpy(buffer, "SALIR\n"); 
             }
             if (strcmp(buffer, "SALIR\n") == 0){ //si se teclea salir se cierra la conexion con el servidor
-            fin = 1;
+                fin = 1;
             }
             send(sd, buffer, strlen(buffer), 0);
         }

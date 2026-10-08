@@ -28,12 +28,17 @@ typedef struct {
     int estado; // 0: no logueado(ST_CONECTADO), 1: Esperando password(ST_USUARIO_OK), 2: Logueado(ST_VALIDADO)
 } Cliente;
 
+// ------ ARREGLO -----
+// arreglar codigo con enviar, algunas veces usamos enviar y otras veces lo hacemos a mano
+// --------------------
+
 void enviar(int fd, const char *msg)
 {
     char buf[MSG_SIZE];
     snprintf(buf, sizeof(buf), "%s\n", msg);
     send(fd, buf, strlen(buf), 0);
 }
+
 
 int existe_usuario(const char *user)
 {
@@ -110,34 +115,32 @@ void login(Cliente *c, char *cmd, char *arg)
     }
 }
 
-int registrar_usuario(char *usuario, char *password)
-{
-FILE *f;
-if (existe_usuario(usuario)){
-    return 0; //Si el usuario existe salimos
-}
+int registrar_usuario(char *usuario, char *password) {
+    FILE *f;
+    if (existe_usuario(usuario)){
+        return 0; //Si el usuario existe salimos
+    }
 
-//Comprobamos que usuario y contrasenna sean validos
-if (usuario[0] == '\0' || strchr(usuario, ' ') != NULL || strlen(usuario) >= MAX_USER){ 
-    return -1; 
-}
-if (password[0] == '\0' || strchr(password, ' ') != NULL || strlen(password) >= MAX_USER){ 
-    return -1; 
-}
+    //Comprobamos que usuario y contrasenna sean validos
+    if (usuario[0] == '\0' || strchr(usuario, ' ') != NULL || strlen(usuario) >= MAX_USER){ 
+        return -1; 
+    }
+    if (password[0] == '\0' || strchr(password, ' ') != NULL || strlen(password) >= MAX_USER){ 
+        return -1; 
+    }
 
-// Abrimos el fichero en modo escritura
-f = fopen(FICHERO_USUARIOS, "a");
+    // Abrimos el fichero en modo escritura
+    f = fopen(FICHERO_USUARIOS, "a");
 
-if (f == NULL){
-    return -1; 
-}
+    if (f == NULL){
+        return -1; 
+    }
 
-// Guardamos usuario y contraseña
-fprintf(f, "%s %s\n", usuario, password);
+    // Guardamos usuario y contraseña
+    fprintf(f, "%s %s\n", usuario, password);
+    fclose(f);
 
-fclose(f);
-
-return 1; // Registro correcto
+    return 1; // Registro correcto
 }
 
 
@@ -276,29 +279,38 @@ int main(){
                             if (num_args == 3){
                                 int res = registrar_usuario(arg1, arg2);
                                 if (res == 1){
-                                    send(i, "+Ok. Registro exitoso\n", 22, 0);
+                                    char *msg = "+Ok. Registro exitoso\n";
+                                    send(i, msg, strlen(msg), 0);
                                 } else if (res == 0) {
-                                    send(i, "-Err. Usuario existente\n", 21, 0);
+                                    char *msg = "-Err. Usuario existente\n";
+                                    send(i, msg, strlen(msg), 0);
                                 } else {
-                                    send(i, "-Err. Error en registro\n", 23, 0);
+                                    char *msg = "-Err. Error en registro\n";
+                                    send(i, msg, strlen(msg), 0);
                                 }
                             } else {
-                                send(i, "-Err. Formato: REGISTRO <usuario> <password>\n", 36, 0);
+                                char *msg = "-Err. Formato: REGISTRO <usuario> <password>\n";
+                                send(i, msg, strlen(msg), 0);
                             }
                         } else if (strncmp(comando, "USUARIO", 7) == 0){
                             if (num_args == 2){
                                 if (existe_usuario(arg1)){
                                     clientes[idx].estado = 1; // cambiamos estado a esperando contrasenia
                                     strcpy(clientes[idx].nombre, arg1); // guardamos el nombre de usuario
-                                    send(i, "+Ok. Usuario correcto\n", 22, 0);
+
+                                    char *msg = "+Ok. Usuario correcto\n";
+                                    send(i, msg, strlen(msg), 0);
                                 } else {
-                                    send(i, "-Err. Usuario incorrecto\n", 25, 0);
+                                    char *msg = "-Err. Usuario incorrecto\n";
+                                    send(i, msg, strlen(msg), 0);
                                 }
                             } else {
-                                send(i, "-Err. Formato: USUARIO <usuario>\n", 32, 0);
+                                char *msg = "-Err. Formato: USUARIO <usuario>\n";
+                                send(i, msg, strlen(msg), 0);
                             }
                         } else {
-                            send(i, "-Err. Comando no reconocido\n", 29, 0);
+                            char *msg = "-Err. Comando no reconocido\n";
+                            send(i, msg, strlen(msg), 0);
                         }
                     } else {
                         // recibidos == 0 -> cliente cerro la conexion
