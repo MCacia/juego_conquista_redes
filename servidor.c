@@ -56,17 +56,17 @@ int existe_usuario(const char *user)
     return 0;  // si es correcto devuelve 0
 }
 
-int passwordCorrecta(const char *user, const char *pass)
-{
+int passwordCorrecta(const char *user, const char *pass) {
     FILE *f = fopen(FICHERO_USUARIOS, "r");
     char u[MAX_USER], p[MAX_USER];
-    if (!f)
+    if (!f) {
         return 0;
+    }
+
     while (fscanf(f, "%31s %31s", u, p) == 2)
-        if (strcmp(u, user) == 0)
-        {                                // verificamos que el usuario coincide
-            fclose(f);                   // cerramos el archivo
-            return strcmp(p, pass) == 0; // comprobamos que la contraseña del archivo coincida con la que le ha escrito el usuario
+        if (strcmp(u, user) == 0) {                                // verificamos que el usuario coincide
+            fclose(f);                                              // cerramos el archivo
+            return strcmp(p, pass) == 0;                            // comprobamos que la contrasenia del archivo coincida con la que le ha escrito el usuario
         }
     fclose(f);
     return 0;
@@ -306,6 +306,20 @@ int main(){
                                 }
                             } else {
                                 char *msg = "-Err. Formato: USUARIO <usuario>\n";
+                                send(i, msg, strlen(msg), 0);
+                            }
+                        } else if (strncmp(comando, "PASSWORD", 8) == 0){
+                            if (num_args == 2){
+                                if (passwordCorrecta(clientes[idx].nombre, arg1)){
+                                    clientes[idx].estado = 2;
+                                    char *msg = "+Ok. Password correcta. Login realizado con exito\n";
+                                    send(i, msg, strlen(msg), 0);
+                                } else {
+                                    char *msg = "-Err. Contrasenia incorrecta\n";
+                                    send(i, msg, strlen(msg), 0);
+                                }
+                            } else {
+                                char *msg = "-Err. Formato: PASSWORD <contrasenia>\n";
                                 send(i, msg, strlen(msg), 0);
                             }
                         } else {
