@@ -74,7 +74,7 @@ int existe_usuario(const char *user)
         { // comprobamos que el usuario existe comparando u(el archivo) con user(entrada de teclado)
             fclose(f);
             return 1; // si no es correcto devuelve 1
-        } //
+        }
     fclose(f); // cerramos el archivo
     return 0;  // si es correcto devuelve 0
 }
@@ -87,9 +87,9 @@ int passwordCorrecta(const char *user, const char *pass) {
     }
 
     while (fscanf(f, "%31s %31s", u, p) == 2)
-        if (strcmp(u, user) == 0) {                                // verificamos que el usuario coincide
-            fclose(f);                                              // cerramos el archivo
-            return strcmp(p, pass) == 0;                            // comprobamos que la contrasenia del archivo coincida con la que le ha escrito el usuario
+        if (strcmp(u, user) == 0) { // verificamos que el usuario coincide
+            fclose(f); // cerramos el archivo
+            return strcmp(p, pass) == 0; // comprobamos que la contrasenia del archivo coincida con la que le ha escrito el usuario
         }
     fclose(f);
     return 0;
@@ -141,10 +141,10 @@ void login(Cliente *c, char *cmd, char *arg)
 int registrar_usuario(char *usuario, char *password) {
     FILE *f;
     if (existe_usuario(usuario)){
-        return 0; //Si el usuario existe salimos
+        return 0; // Si el usuario existe salimos
     }
 
-    //Comprobamos que usuario y contrasenna sean validos
+    // Comprobamos que usuario y contrasenna sean validos
     if (usuario[0] == '\0' || strchr(usuario, ' ') != NULL || strlen(usuario) >= MAX_USER){ 
         return -1; 
     }
@@ -215,19 +215,19 @@ void abandonarPartida(Cliente *c){
 
 // Crea la partida entre a (J1) y b (J2)
 void crearPartida(Cliente *a, Cliente *b){
-    int p; //inicializamos un contador de partidas
+    int p; // inicializamos un contador de partidas
     for (p = 0; p < MAX_PARTIDAS; p++)
-        if (!partidas[p].activa) break; //si las partidas superan el maximo de partidas paramos.
+        if (!partidas[p].activa) break; // si las partidas superan el maximo de partidas paramos.
 
     if (p == MAX_PARTIDAS){
         enviar(b->fd, "-Err. No hay hueco para mas partidas");
         return;
     }
 
-    memset(&partidas[p], 0, sizeof(Partida)); //limpiamos la estructura de partidas
-    partidas[p].activa = 1; //como vamos a crear una partida, ponemos a uno el selector de partidas activas
-    partidas[p].fd[0] = a->fd; //socket cliente a
-    partidas[p].fd[1] = b->fd; //socket cliente b
+    memset(&partidas[p], 0, sizeof(Partida)); // limpiamos la estructura de partidas
+    partidas[p].activa = 1; // como vamos a crear una partida, ponemos a uno el selector de partidas activas
+    partidas[p].fd[0] = a->fd; // socket cliente a
+    partidas[p].fd[1] = b->fd; // socket cliente b
 
     // casilla inicial aleatoria y distinta para cada jugador
     int f1 = rand() % FILAS, c1 = rand() % COLS;
@@ -237,20 +237,20 @@ void crearPartida(Cliente *a, Cliente *b){
         c2 = rand() % COLS;
     } while (f2 == f1 && c2 == c1);
 
-    partidas[p].dueno[f1][c1] = 1; //ponemos como dueño de la casilla aleatoria a J1
-    partidas[p].unidades[f1][c1] = UNIDADES_INICIO; //asignamos sus tropas
+    partidas[p].dueno[f1][c1] = 1; // ponemos como dueño de la casilla aleatoria a J1
+    partidas[p].unidades[f1][c1] = UNIDADES_INICIO; // asignamos sus tropas
     partidas[p].dueno[f2][c2] = 2;
     partidas[p].unidades[f2][c2] = UNIDADES_INICIO;
 
-    a->estado = 4;  a->partida = p;  a->jugador = 0; //cambiamos el estado a "ST_JUGANDO"
+    a->estado = 4;  a->partida = p;  a->jugador = 0; // cambiamos el estado a "ST_JUGANDO"
     b->estado = 4;  b->partida = p;  b->jugador = 1;
 
-    enviar(a->fd, "+Ok. Empieza la partida"); //notificamos a los usuarios 
+    enviar(a->fd, "+Ok. Empieza la partida"); // notificamos a los usuarios 
     enviar(b->fd, "+Ok. Empieza la partida");
 }
 
 void iniciarPartida(Cliente *c){
-    //esto es simplemente validaciones antes de empezar la partida
+    // esto es simplemente validaciones antes de empezar la partida
     if (c->estado < 2){
         enviar(c->fd, "-Err. Debes validarte antes de iniciar una partida");
         return;
@@ -283,17 +283,17 @@ void iniciarPartida(Cliente *c){
 
 // muestra el tablero tus casillas con unidades, las del rival sin unidades
 void cmdEstado(Cliente *c){
-    //comprobaciones...
+    // comprobaciones...
     if (c->estado != 4){
         enviar(c->fd, "-Err. No estas dentro de una partida");
         return;
     }
-    Partida *p = &partidas[c->partida]; //creamos un puntero a la partida de dicho cliente
+    Partida *p = &partidas[c->partida]; // creamos un puntero a la partida de dicho cliente
     int yo = c->jugador + 1; // 1 o 2
     char mapa[512] = "+Ok. Tablero\n   1       2       3       4       5\n";
     char linea[100], texto[16], celda[16];
 
-    //esto basicamente es el codigo para "dibujar el mapa"
+    // esto basicamente es el codigo para "dibujar el mapa"
     for (int f = 0; f < FILAS; f++){
         sprintf(linea, "%c  ", 'A' + f); // letra de la fila
 
@@ -316,8 +316,8 @@ void cmdEstado(Cliente *c){
     send(c->fd, mapa, strlen(mapa), 0);
 }
 
-//Para: Samu, como me dijiste que no usabamos esta funcion lo que he hecho
-//ha sido sacar todos los IF del main y meterlo todo en esta funcion para que sea todo mas modular y limpio :)
+// Para: Samu, como me dijiste que no usabamos esta funcion lo que he hecho
+// ha sido sacar todos los IF del main y meterlo todo en esta funcion para que sea todo mas modular y limpio :)
 void procesarMensaje(Cliente *c, char *msg)
 {
     char cmd[MSG_SIZE] = "", arg[MSG_SIZE] = "";
