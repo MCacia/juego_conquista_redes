@@ -14,19 +14,42 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
+#include <sys/select.h>
 
 #define PUERTO 2026
-#define MSG_SIZE 100
-#define MAX_CLIENTES 4
+#define MSG_SIZE 250 
+#define MAX_CLIENTES 10
 
 #define MAX_USER 32
 #define FICHERO_USUARIOS "usuarios.txt"
 
+#define MAX_PARTIDAS 4
+#define FILAS 5
+#define COLS 5
+#define UNIDADES_INICIO 30
+
 typedef struct {
     int fd; // descriptor del socket del cliente
     char nombre[50]; // Nombre de usuario en proceso de login o validado
-    int estado; // 0: no logueado(ST_CONECTADO), 1: Esperando password(ST_USUARIO_OK), 2: Logueado(ST_VALIDADO)
+    int estado; // 0: no logueado(ST_CONECTADO), 1: Esperando password(ST_USUARIO_OK), 2: Logueado(ST_VALIDADO), 3: Esperando oponente(ST_ESPERA), 4: Jugando(ST_JUGANDO)
+    int partida;    // numero de partida en la que esta (-1 = ninguna)
+    int jugador;    // 0 = J1, 1 = J2
 } Cliente;
+
+typedef struct {
+    int activa;                 // 1 = en uso, 0 = libre
+    int fd[2];                  // sockets de J1 y J2
+    int dueno[FILAS][COLS];     // 0 = neutral, 1 = J1, 2 = J2
+    int unidades[FILAS][COLS]; // numero de tropas que tiene cada jugador en X casilla
+    int turno;
+    int numTurnos;
+} Partida;
+
+Cliente clientes[MAX_CLIENTES];
+int numClientes = 0;
+Partida partidas[MAX_PARTIDAS];
+fd_set readfds;
 
 // ------ ARREGLO -----
 // arreglar codigo con enviar, algunas veces usamos enviar y otras veces lo hacemos a mano
@@ -144,6 +167,157 @@ int registrar_usuario(char *usuario, char *password) {
 }
 
 
+
+void registro(Cliente *c, char *arg)
+{
+    char user[MSG_SIZE], pass[MSG_SIZE], extra[MSG_SIZE];
+
+    if (c->estado != 0){
+        enviar(c->fd, "-Err. No puedes registrarte en este momento");
+        return;
+    }
+    // debe haber exactamente 2 palabras: usuario y password
+    if (sscanf(arg, "%s %s %s", user, pass, extra) != 2){
+        enviar(c->fd, "-Err. Formato: REGISTRO usuario password");
+        return;
+    }
+
+    int res = registrar_usuario(user, pass);
+    if (res == 1)
+        enviar(c->fd, "+Ok. Registro exitoso");
+    else if (res == 0)
+        enviar(c->fd, "-Err. Usuario existente");
+    else
+        enviar(c->fd, "-Err. Error en registro");
+}
+
+// Devuelve un puntero al cliente que tiene ese socket
+Cliente *buscarCliente(int fd){
+    for (int i = 0; i < numClientes; i++)
+        if (clientes[i].fd == fd) return &clientes[i];
+    return NULL;
+}
+
+// Si el cliente estaba jugando, avisa al oponente y libera la partida
+void abandonarPartida(Cliente *c){
+    if (c->estado != 4) return;
+
+    Partida *p = &partidas[c->partida];
+    Cliente *otro = buscarCliente(p->fd[1 - c->jugador]);
+
+    if (otro != NULL){
+        enviar(otro->fd, "+Ok. Tu oponente ha terminado la partida");
+        otro->estado = 2;
+        otro->partida = -1;
+    }
+    p->activa = 0;
+}
+
+// Crea la partida entre a (J1) y b (J2)
+void crearPartida(Cliente *a, Cliente *b){
+    int p; //inicializamos un contador de partidas
+    for (p = 0; p < MAX_PARTIDAS; p++)
+        if (!partidas[p].activa) break; //si las partidas superan el maximo de partidas paramos.
+
+    if (p == MAX_PARTIDAS){
+        enviar(b->fd, "-Err. No hay hueco para mas partidas");
+        return;
+    }
+
+    memset(&partidas[p], 0, sizeof(Partida)); //limpiamos la estructura de partidas
+    partidas[p].activa = 1; //como vamos a crear una partida, ponemos a uno el selector de partidas activas
+    partidas[p].fd[0] = a->fd; //socket cliente a
+    partidas[p].fd[1] = b->fd; //socket cliente b
+
+    // casilla inicial aleatoria y distinta para cada jugador
+    int f1 = rand() % FILAS, c1 = rand() % COLS;
+    int f2, c2;
+    do {
+        f2 = rand() % FILAS;
+        c2 = rand() % COLS;
+    } while (f2 == f1 && c2 == c1);
+
+    partidas[p].dueno[f1][c1] = 1; //ponemos como dueño de la casilla aleatoria a J1
+    partidas[p].unidades[f1][c1] = UNIDADES_INICIO; //asignamos sus tropas
+    partidas[p].dueno[f2][c2] = 2;
+    partidas[p].unidades[f2][c2] = UNIDADES_INICIO;
+
+    a->estado = 4;  a->partida = p;  a->jugador = 0; //cambiamos el estado a "ST_JUGANDO"
+    b->estado = 4;  b->partida = p;  b->jugador = 1;
+
+    enviar(a->fd, "+Ok. Empieza la partida"); //notificamos a los usuarios 
+    enviar(b->fd, "+Ok. Empieza la partida");
+}
+
+void iniciarPartida(Cliente *c){
+    //esto es simplemente validaciones antes de empezar la partida
+    if (c->estado < 2){
+        enviar(c->fd, "-Err. Debes validarte antes de iniciar una partida");
+        return;
+    }
+    if (c->estado == 3){
+        enviar(c->fd, "-Err. Ya estas esperando otro jugador");
+        return;
+    }
+    if (c->estado == 4){
+        enviar(c->fd, "-Err. Ya estas en una partida");
+        return;
+    }
+
+    // buscamos a alguien que ya este esperando
+    Cliente *rival = NULL;
+    for (int i = 0; i < numClientes; i++){
+        if (clientes[i].estado == 3){
+            rival = &clientes[i];
+            break;
+        }
+    }
+
+    if (rival == NULL){
+        c->estado = 3;
+        enviar(c->fd, "+Ok. Esperando otro jugador");
+    } else {
+        crearPartida(rival, c);
+    }
+}
+
+// muestra el tablero tus casillas con unidades, las del rival sin unidades
+void cmdEstado(Cliente *c){
+    //comprobaciones...
+    if (c->estado != 4){
+        enviar(c->fd, "-Err. No estas dentro de una partida");
+        return;
+    }
+    Partida *p = &partidas[c->partida]; //creamos un puntero a la partida de dicho cliente
+    int yo = c->jugador + 1; // 1 o 2
+    char mapa[512] = "+Ok. Tablero\n   1       2       3       4       5\n";
+    char linea[100], texto[16], celda[16];
+
+    //esto basicamente es el codigo para "dibujar el mapa"
+    for (int f = 0; f < FILAS; f++){
+        sprintf(linea, "%c  ", 'A' + f); // letra de la fila
+
+        for (int col = 0; col < COLS; col++){
+            int d = p->dueno[f][col];
+
+            if (d == 0)
+                strcpy(texto, ".");
+            else if (d == yo)
+                sprintf(texto, "J%d(%d)", d, p->unidades[f][col]);
+            else
+                sprintf(texto, "J%d", d);
+
+            sprintf(celda, "%-8s", texto);         // ancho fijo de 8
+            strcat(linea, celda);
+        }
+        strcat(linea, "\n");
+        strcat(mapa, linea);
+    }
+    send(c->fd, mapa, strlen(mapa), 0);
+}
+
+//Para: Samu, como me dijiste que no usabamos esta funcion lo que he hecho
+//ha sido sacar todos los IF del main y meterlo todo en esta funcion para que sea todo mas modular y limpio :)
 void procesarMensaje(Cliente *c, char *msg)
 {
     char cmd[MSG_SIZE] = "", arg[MSG_SIZE] = "";
@@ -160,6 +334,23 @@ void procesarMensaje(Cliente *c, char *msg)
 
     if (strcmp(cmd, "USUARIO") == 0 || strcmp(cmd, "PASSWORD") == 0)
         login(c, cmd, arg);
+    // registro
+    else if (strcmp(cmd, "REGISTRO") == 0)
+        registro(c, arg);
+    else if (strcmp(cmd, "INICIAR-PARTIDA") == 0)
+        iniciarPartida(c);
+    else if (strcmp(cmd, "ESTADO") == 0)
+        cmdEstado(c);
+    else if (strcmp(cmd, "SALIR") == 0)
+        ;   // el cliente cierra su socket y el main lo elimina al detectarlo
+    else if (strcmp(cmd, "CONQUISTAR") == 0 || strcmp(cmd, "ATACAR") == 0 ||
+             strcmp(cmd, "REFORZAR") == 0 || strcmp(cmd, "PASAR") == 0)
+    {
+        if (c->estado != 4)
+            enviar(c->fd, "-Err. No estas dentro de una partida");
+        else
+            enviar(c->fd, "-Err. Comando todavia no implementado");
+    }
     else
         enviar(c->fd, "-Err. Comando no reconocido");
 }
@@ -170,14 +361,11 @@ int main(){
                     // new_sd: descriptor de los sockets que se crean cada vez que accept acepta a un cliente
     struct sockaddr_in sockname, from; // estructura con info del socket de servidor (sockname) y cliente (from)
     socklen_t from_len; // indicamos el tamanio de la estructura from para bind
-    int salir = 0;
     char buffer[MSG_SIZE];
-    fd_set readfds, auxfds;
-
-    Cliente clientes[MAX_CLIENTES]; //borrar
-    int numClientes = 0; //borrar
+    fd_set auxfds;
     int i, j, recibidos;
-
+    int on = 1;
+    srand(time(NULL));     // iicializamos la semilla para que las casillas de los jugadores sean aleatorias en cada partida
 
     fd = socket (AF_INET, SOCK_STREAM, 0);
     // Definimos AF_INET para el tipo de direcciones IPv4
@@ -187,6 +375,9 @@ int main(){
         perror("Error al abrir el socket de servidor \n");
         exit(1);
     }
+
+    // permite relanzar el servidor sin esperar a que se libere el puerto
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
 
     // definimos la informacion de la estructura del servidor para poder usar bind
     sockname.sin_family = AF_INET; // familia de direcciones
@@ -242,17 +433,17 @@ int main(){
                     if (numClientes < MAX_CLIENTES){
                         clientes[numClientes].fd = new_sd;
                         clientes[numClientes].estado = 0; // no logueado
+                        clientes[numClientes].partida = -1;
+                        clientes[numClientes].jugador = -1;
                         // rellenamos con 0 el espacio para el nombre del cliente, todavia no lo sabemos
                         bzero(clientes[numClientes].nombre, sizeof(clientes[numClientes].nombre));
                         numClientes++;
                         FD_SET(new_sd, &readfds); // a partir de ahora vigilamos new_sd tambien
 
                         printf("Cliente conectado desde %s:%d (socket %d)\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port), new_sd);
-                        send(new_sd, "+Ok. Usuario conectado\n", 23, 0);
+                        enviar(new_sd, "+Ok. Usuario conectado");
                     } else {
-                        bzero(buffer, sizeof(buffer));
-                        strcpy(buffer, "-Err. Demasiados Clientes\n");
-                        send(new_sd, buffer, strlen(buffer), 0);
+                        enviar(new_sd, "-Err. Demasiados Clientes");
                         close(new_sd);
                     }
 
@@ -267,77 +458,25 @@ int main(){
                         if (clientes[j].fd == i){ idx = j; break;}
                     }
 
-                    if (recibidos > 0){
-                        buffer[strcspn(buffer, "\n")] = '\0';
+                    if (recibidos > 0 && idx != -1){
+                        buffer[strcspn(buffer, "\r\n")] = '\0';
                         printf("Socket %d envia: %s\n", i, buffer);
-
-                        char comando[20], arg1[50], arg2[50];
-                        int num_args = sscanf(buffer, "%s %s %s", comando, arg1, arg2);
-
-                        // registro
-                        if (strncmp(comando, "REGISTRO", 8) == 0){
-                            if (num_args == 3){
-                                int res = registrar_usuario(arg1, arg2);
-                                if (res == 1){
-                                    char *msg = "+Ok. Registro exitoso\n";
-                                    send(i, msg, strlen(msg), 0);
-                                } else if (res == 0) {
-                                    char *msg = "-Err. Usuario existente\n";
-                                    send(i, msg, strlen(msg), 0);
-                                } else {
-                                    char *msg = "-Err. Error en registro\n";
-                                    send(i, msg, strlen(msg), 0);
-                                }
-                            } else {
-                                char *msg = "-Err. Formato: REGISTRO <usuario> <password>\n";
-                                send(i, msg, strlen(msg), 0);
-                            }
-                        } else if (strncmp(comando, "USUARIO", 7) == 0){
-                            if (num_args == 2){
-                                if (existe_usuario(arg1)){
-                                    clientes[idx].estado = 1; // cambiamos estado a esperando contrasenia
-                                    strcpy(clientes[idx].nombre, arg1); // guardamos el nombre de usuario
-
-                                    char *msg = "+Ok. Usuario correcto\n";
-                                    send(i, msg, strlen(msg), 0);
-                                } else {
-                                    char *msg = "-Err. Usuario incorrecto\n";
-                                    send(i, msg, strlen(msg), 0);
-                                }
-                            } else {
-                                char *msg = "-Err. Formato: USUARIO <usuario>\n";
-                                send(i, msg, strlen(msg), 0);
-                            }
-                        } else if (strncmp(comando, "PASSWORD", 8) == 0){
-                            if (num_args == 2){
-                                if (passwordCorrecta(clientes[idx].nombre, arg1)){
-                                    clientes[idx].estado = 2;
-                                    char *msg = "+Ok. Password correcta. Login realizado con exito\n";
-                                    send(i, msg, strlen(msg), 0);
-                                } else {
-                                    char *msg = "-Err. Contrasenia incorrecta\n";
-                                    send(i, msg, strlen(msg), 0);
-                                }
-                            } else {
-                                char *msg = "-Err. Formato: PASSWORD <contrasenia>\n";
-                                send(i, msg, strlen(msg), 0);
-                            }
-                        } else {
-                            char *msg = "-Err. Comando no reconocido\n";
-                            send(i, msg, strlen(msg), 0);
-                        }
+                        procesarMensaje(&clientes[idx], buffer);
                     } else {
                         // recibidos == 0 -> cliente cerro la conexion
                         // recibidos == -1 -> error en la lectura
                         printf("El cliente del socket %d se ha desconectado\n", i);
+                        if (idx != -1) abandonarPartida(&clientes[idx]);
                         close(i);
                         FD_CLR(i, &readfds);
 
                         // borramos sobreescribiendo los sockets uno a uno, pasando todos una posicion a la izquierda desde el que se ha desconectado
-                        for (; idx< numClientes - 1; idx++){
-                            clientes[idx] = clientes[idx + 1];
+                        if (idx != -1){
+                            for (; idx< numClientes - 1; idx++){
+                                clientes[idx] = clientes[idx + 1];
+                            }
+                            numClientes--;
                         }
-                        numClientes--;
 
                     }
                 }
@@ -349,25 +488,3 @@ int main(){
     return 0;
 
 }
-    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

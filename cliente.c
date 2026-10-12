@@ -7,6 +7,8 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <time.h>
+
  //definimos puerto y tamaño del buffer de mensajes
 #define PUERTO 2026
 #define MSG_SIZE 250
