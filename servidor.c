@@ -2,20 +2,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <time.h>
 #include <sys/types.h>
 #include <sys/socket.h>
-#include <netinet/in.h>
-#include <stdio.h>
-#include <sys/types.h>
-#include <sys/socket.h>
+#include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <stdlib.h>
-#include <string.h>
-#include <unistd.h>
-#include <time.h>
-#include <sys/select.h>
 
 #define PUERTO 2026
 #define MSG_SIZE 250 
@@ -34,7 +27,7 @@ typedef struct {
     char nombre[50]; // Nombre de usuario en proceso de login o validado
     int estado; // 0: no logueado(ST_CONECTADO), 1: Esperando password(ST_USUARIO_OK), 2: Logueado(ST_VALIDADO), 3: Esperando oponente(ST_ESPERA), 4: Jugando(ST_JUGANDO)
     int partida;    // numero de partida en la que esta (-1 = ninguna)
-int jugador;    // 0 = J1, 1 = J2, 2 = J3
+int jugador;    // 0 = J1, 1 = J2
 } Cliente;
 
 typedef struct {
@@ -366,7 +359,7 @@ int parsearCasilla(const char *casilla, int *f, int *c){
     *c = casilla[1] - '1';
     // jugamos con los valores numericos en ascii de las letras y numeros, si 'A' es 65 y 'B' es 66, cuando el usuario inserte 'B3' como casilla, *f contendra 66 - 65 = 1
 
-    if (*f < 0 || *f >= FILAS || *c < 0 || *c > COLS){
+    if (*f < 0 || *f >= FILAS || *c < 0 || *c >= COLS){
         return 0;
     }
     return 1;
@@ -442,10 +435,8 @@ void finalizarPartida(Partida *p) {
 
 void avanzarTurno (Partida *p){
     p->turno = 1-p->turno;
+    p->numTurnos++;
 
-    if(p->turno == 0){
-        p->numTurnos++;
-    }
     // establecemos el limite de partidas
     if (p->numTurnos >= 10) { 
         finalizarPartida(p);
@@ -530,6 +521,7 @@ void cmdConquistar(Cliente *c, char *arg){
 
     if(p->dueno[f2][c2] != 0){ // para la conquista el territorio debe ser neutral
         enviar(c->fd, "-Err. El territorio destino no es neutral");
+        return;
     }
 
     // modificamos la memoria del servidor y actualizamos la matriz
@@ -539,7 +531,7 @@ void cmdConquistar(Cliente *c, char *arg){
 
     // confirmar al cliente y avanzar en el turno
     char resp[100];
-    snprintf(resp, sizeof(resp), "+OK. Territorio %c%c conquistado.", f2 + 'A', c2 + '1');
+    snprintf(resp, sizeof(resp), "+Ok. Territorio %c%c conquistado.", f2 + 'A', c2 + '1');
     enviar(c->fd, resp);
     
     avanzarTurno(p);
@@ -766,6 +758,12 @@ int main(){
 
                     if (recibidos > 0 && idx != -1){
                         buffer[strcspn(buffer, "\r\n")] = '\0';
+
+                        if (strlen(buffer) > 200) {
+                            enviar(i, "-Err. Mensaje demasiado largo (maximo 200 caracteres)");
+                            continue;
+                        }
+
                         printf("Socket %d envia: %s\n", i, buffer);
                         procesarMensaje(&clientes[idx], buffer);
                     } else {

@@ -7,7 +7,6 @@
 #include <sys/select.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
-#include <time.h>
 
  //definimos puerto y tamaño del buffer de mensajes
 #define PUERTO 2026
@@ -20,7 +19,7 @@ int main( int argc, char *argv[]){
     fd_set readfds, auxfds; //creamos los descriptores, que sirven para leer la entrada de teclado y el socket
 
     sd = socket(AF_INET, SOCK_STREAM, 0); //definimos el socket paea el uso del protocolo TCP
-    if (sd == 1) {
+    if (sd == -1) {
         perror("No se puede abrir el socket cliente"); 
         exit(1);
     }
