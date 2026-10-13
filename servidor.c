@@ -351,7 +351,7 @@ int parsearCasilla(const char *casilla, int *f, int *c){
     *c = casilla[1] - '1';
     // jugamos con los valores numericos en ascii de las letras y numeros, si 'A' es 65 y 'B' es 66, cuando el usuario inserte 'B3' como casilla, *f contendra 66 - 65 = 1
 
-    if (*f < 0; || *f >= FILAS || *c < 0 || *c > COLS){
+    if (*f < 0 || *f >= FILAS || *c < 0 || *c > COLS){
         return 0;
     }
     return 1;
@@ -367,9 +367,65 @@ int sonAdyacentes(int f1, int c1, int f2, int c2){
     return (df == 1 && dc == 0) || (df == 0 && dc == 1);
 }
 
+// Lógica de recuento de ganador y perdedor y liberación de recursos de la partida
+void finalizarPartida(Partida *p) {
+    int terr1 = 0, terr2 = 0;
+    int uds1 = 0, uds2 = 0;
+
+    // Escaneo del tablero (recuento de unidades y territorios)
+    for (int i = 0; i < FILAS; i++) {
+        for (int j = 0; j < COLS; j++) {
+            if (p->dueno[i][j] == 1) {
+                terr1++;
+                uds1 += p->unidades[i][j];
+            } else if (p->dueno[i][j] == 2) {
+                terr2++;
+                uds2 += p->unidades[i][j];
+            }
+        }
+    }
+
+    char msg[MSG_SIZE];
+    if (terr1 > terr2) {
+        // Caso 1: Jugador 1 con mas territorios conquistados que Jugador 2
+        snprintf(msg, sizeof(msg), "+Ok. Fin de partida. Ganador J1");
+    } else if (terr2 > terr1) {
+        // Caso 2: Jugador 2 con mas territorios conquistados que Jugador 1
+        snprintf(msg, sizeof(msg), "+Ok. Fin de partida. Ganador J2");
+    } else {
+        // Caso 3: Empate, miramos las unidades de cada uno para dictar el ganador
+        if (uds1 > uds2){
+            snprintf(msg, sizeof(msg), "+Ok. Fin de partida. Empate en territorios. Ganador J1 por unidades");
+        } else if (uds2 > uds1){
+            snprintf(msg, sizeof(msg), "+Ok. Fin de partida. Empate en territorios. Ganador J2 por unidades");
+        } else {
+            snprintf(msg, sizeof(msg), "+Ok. Fin de partida. Empate total");
+        }
+    }
+
+    Cliente *j1 = buscarCliente(p->fd[0]);
+    Cliente *j2 = buscarCliente(p->fd[1]);
+
+    // Devolvemos a los clientes al estado "Validado" para que puedan buscar otra partida
+    if (j1) { 
+        enviar(j1->fd, msg);
+        j1->estado = 2; 
+        j1->partida = -1; 
+        j1->jugador = -1; 
+    }
+    if (j2) {  
+        enviar(j2->fd, msg); 
+        j2->estado = 2; 
+        j2->partida = -1; 
+        j2->jugador = -1; 
+    }
+
+    // Liberamos el "slot" de la partida
+    p->activa = 0; 
+}
 
 
-void avanzarTurno (Partida p){
+void avanzarTurno (Partida *p){
     p->turno = 1-p->turno;
 
     if(p->turno == 0){
@@ -396,7 +452,7 @@ void avanzarTurno (Partida p){
         return;
     }
     
-    Clientesiguiente = buscarCliente(p->fd[p->turno]); // buscamos al cliente nuevo
+    Cliente *siguiente = buscarCliente(p->fd[p->turno]); // buscamos al cliente nuevo
         if(siguiente){
             enviar(siguiente->fd, "+Ok. Es tu turno");
         }
