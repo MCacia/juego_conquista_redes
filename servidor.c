@@ -34,7 +34,7 @@ typedef struct {
     char nombre[50]; // Nombre de usuario en proceso de login o validado
     int estado; // 0: no logueado(ST_CONECTADO), 1: Esperando password(ST_USUARIO_OK), 2: Logueado(ST_VALIDADO), 3: Esperando oponente(ST_ESPERA), 4: Jugando(ST_JUGANDO)
     int partida;    // numero de partida en la que esta (-1 = ninguna)
-    int jugador;    // 0 = J1, 1 = J2
+int jugador;    // 0 = J1, 1 = J2, 2 = J3
 } Cliente;
 
 typedef struct {
@@ -49,7 +49,7 @@ typedef struct {
 Cliente clientes[MAX_CLIENTES];
 int numClientes = 0;
 Partida partidas[MAX_PARTIDAS];
-fd_set readfds;
+fd_set readfds; // array de sockets de cliente
 
 // ------ ARREGLO -----
 // arreglar codigo con enviar, algunas veces usamos enviar y otras veces lo hacemos a mano
@@ -323,36 +323,63 @@ void procesarMensaje(Cliente *c, char *msg)
     char cmd[MSG_SIZE] = "", arg[MSG_SIZE] = "";
     char *sp = strchr(msg, ' ');
 
-    if (sp)
-    {
+    if (sp) {
         *sp = '\0';
         strcpy(cmd, msg);
         strcpy(arg, sp + 1);
-    }
-    else
+    } else {
         strcpy(cmd, msg);
-
-    if (strcmp(cmd, "USUARIO") == 0 || strcmp(cmd, "PASSWORD") == 0)
-        login(c, cmd, arg);
-    // registro
-    else if (strcmp(cmd, "REGISTRO") == 0)
-        registro(c, arg);
-    else if (strcmp(cmd, "INICIAR-PARTIDA") == 0)
-        iniciarPartida(c);
-    else if (strcmp(cmd, "ESTADO") == 0)
-        cmdEstado(c);
-    else if (strcmp(cmd, "SALIR") == 0)
-        ;   // el cliente cierra su socket y el main lo elimina al detectarlo
-    else if (strcmp(cmd, "CONQUISTAR") == 0 || strcmp(cmd, "ATACAR") == 0 ||
-             strcmp(cmd, "REFORZAR") == 0 || strcmp(cmd, "PASAR") == 0)
-    {
-        if (c->estado != 4)
-            enviar(c->fd, "-Err. No estas dentro de una partida");
-        else
-            enviar(c->fd, "-Err. Comando todavia no implementado");
     }
-    else
+
+    if (strcmp(cmd, "USUARIO") == 0 || strcmp(cmd, "PASSWORD") == 0) {
+        login(c, cmd, arg);
+    }
+    // registro
+    else if (strcmp(cmd, "REGISTRO") == 0) {
+        registro(c, arg);
+    } else if (strcmp(cmd, "INICIAR-PARTIDA") == 0) {
+        iniciarPartida(c);
+    } else if (strcmp(cmd, "ESTADO") == 0) {
+        cmdEstado(c);
+    } else if (strcmp(cmd, "SALIR") == 0) {
+        ;   // el cliente cierra su socket y el main lo elimina al detectarlo
+    } else if (strcmp(cmd, "CONQUISTAR") == 0 || strcmp(cmd, "ATACAR") == 0 ||
+             strcmp(cmd, "REFORZAR") == 0 || strcmp(cmd, "PASAR") == 0) {
+        if (c->estado != 4) {
+            enviar(c->fd, "-Err. No estas dentro de una partida");
+        } else {
+            enviar(c->fd, "-Err. Comando todavia no implementado");
+        }
+    } else {
         enviar(c->fd, "-Err. Comando no reconocido");
+    }
+}
+
+void eliminarCliente(int fd_cliente){
+
+    int idx = -1;
+    for(int i = 0; i < numClientes; i++){
+        if (clientes[i].fd == fd_cliente){
+            idx = i;
+            break;
+        }
+    }
+
+    if (idx != -1){
+        if (clientes[idx].estado == 4) { // si es 4 su estado, el cliente se encuentra en partida
+            abandonarPartida(&clientes[idx]);
+        }
+
+        close(fd_cliente);
+        FD_CLR(fd, &readfds);
+
+        for(; idx < numClientes - 1; idx++){
+            clientes[idx] = clientes[idx + 1];
+        }
+        numClientes--;
+
+        printf("El cliente del socket %d ha sido eliminado correctamente.\n", fd_cliente);
+    }
 }
 
 int main(){
@@ -477,6 +504,8 @@ int main(){
                             }
                             numClientes--;
                         }
+
+                        eliminarCliente(i);
 
                     }
                 }
