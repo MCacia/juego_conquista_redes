@@ -209,6 +209,17 @@ void abandonarPartida(Cliente *c){
     p->activa = 0;
 }
 
+// Envia las instrucciones del juego respetando el límite de búfer
+void cmdAyuda(Cliente *c) {
+    enviar(c->fd, "+Ok. --- MANUAL DE JUEGO ---");
+    enviar(c->fd, "ESTADO : Muestra el tablero actual");
+    enviar(c->fd, "CONQUISTAR [origen] [destino] [uds] : Conquista neutral adyacente");
+    enviar(c->fd, "ATACAR [origen] [destino] [uds] : Ataca enemigo adyacente");
+    enviar(c->fd, "REFORZAR [origen] [destino] [uds] : Mueve tropas propias");
+    enviar(c->fd, "PASAR : Cede el turno al rival");
+    enviar(c->fd, "SALIR : Abandona el servidor");
+}
+
 // Crea la partida entre a (J1) y b (J2)
 void crearPartida(Cliente *a, Cliente *b){
     int p; // inicializamos un contador de partidas
@@ -242,7 +253,9 @@ void crearPartida(Cliente *a, Cliente *b){
     b->estado = 4;  b->partida = p;  b->jugador = 1;
 
     enviar(a->fd, "+Ok. Empieza la partida"); // notificamos a los usuarios 
+    cmdAyuda(a); // Imprime el manual a J1
     enviar(b->fd, "+Ok. Empieza la partida");
+    cmdAyuda(b); // Imprime el manual a J2
 }
 
 void iniciarPartida(Cliente *c){
@@ -276,6 +289,8 @@ void iniciarPartida(Cliente *c){
         crearPartida(rival, c);
     }
 }
+
+
 
 // muestra el tablero tus casillas con unidades, las del rival sin unidades
 void cmdEstado(Cliente *c){
@@ -441,21 +456,22 @@ void avanzarTurno (Partida *p){
     int vivos[2]={0, 0};
     for(int i=0; i<FILAS; i++){
         for(int j=0; j<COLS; j++){
-            if(p->dueno[i][j] == 1){
+            if (p->dueno[i][j] == 1){
                 vivos[0] = 1;
-            }else if (p->dueno[i][j] == 2){
+            } else if (p->dueno[i][j] == 2){
                 vivos[1] = 1;
             }
         }
-        if (!vivos[0] || !vivos[1]) {
+    }
+
+    if (!vivos[0] || !vivos[1]) {
         finalizarPartida(p);
         return;
     }
     
     Cliente *siguiente = buscarCliente(p->fd[p->turno]); // buscamos al cliente nuevo
-        if(siguiente){
-            enviar(siguiente->fd, "+Ok. Es tu turno");
-        }
+    if(siguiente){
+        enviar(siguiente->fd, "+Ok. Es tu turno");
     }
 }
     
@@ -518,12 +534,12 @@ void cmdConquistar(Cliente *c, char *arg){
 
     // modificamos la memoria del servidor y actualizamos la matriz
     p->unidades[f1][c1] -= uds;
-    p->dueno[f2][c2] = c->jugador = 1;
+    p->dueno[f2][c2] = c->jugador + 1;
     p->unidades[f2][c2] = uds;
 
     // confirmar al cliente y avanzar en el turno
     char resp[100];
-    snprintf(resp, sizeof(resp), "+OK. Territorio %c%d conquistado.", f2 + 'A', c2 = '1');
+    snprintf(resp, sizeof(resp), "+OK. Territorio %c%c conquistado.", f2 + 'A', c2 + '1');
     enviar(c->fd, resp);
     
     avanzarTurno(p);
@@ -576,11 +592,11 @@ void cmdAtacar(Cliente *c, char *arg){
     if (uds > def_uds) {
         p->dueno[f2][c2] = c->jugador + 1;
         p->unidades[f2][c2] = uds;
-        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has conquistado el territorio %c%d", f2 + 'A', c2 + '1');
-        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%d y has perdido el territorio", f2 + 'A', c2 + '1');
+        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has conquistado el territorio %c%c", f2 + 'A', c2 + '1');
+        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%c y has perdido el territorio", f2 + 'A', c2 + '1');
     } else {
-        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has perdido el ataque contra %c%d", f2 + 'A', c2 + '1');
-        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%d y has defendido con exito", f2 + 'A', c2 + '1');
+        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has perdido el ataque contra %c%c", f2 + 'A', c2 + '1');
+        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%c y has defendido con exito", f2 + 'A', c2 + '1');
     }
     
     enviar(c->fd, resp_atk);
@@ -615,6 +631,8 @@ void procesarMensaje(Cliente *c, char *msg)
         iniciarPartida(c);
     } else if (strcmp(cmd, "ESTADO") == 0) {
         cmdEstado(c);
+    } else if (strcmp(cmd, "AYUDA") == 0){
+        cmdAyuda(c);
     } else if (strcmp(cmd, "SALIR") == 0) {
         eliminarCliente(c->fd);   // el cliente cierra su socket y el main lo elimina al detectarlo
     } else if (strcmp(cmd, "PASAR") == 0){
