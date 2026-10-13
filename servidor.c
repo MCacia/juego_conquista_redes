@@ -51,10 +51,6 @@ int numClientes = 0;
 Partida partidas[MAX_PARTIDAS];
 fd_set readfds; // array de sockets de cliente
 
-// ------ ARREGLO -----
-// arreglar codigo con enviar, algunas veces usamos enviar y otras veces lo hacemos a mano
-// --------------------
-
 void enviar(int fd, const char *msg)
 {
     char buf[MSG_SIZE];
@@ -316,8 +312,230 @@ void cmdEstado(Cliente *c){
     send(c->fd, mapa, strlen(mapa), 0);
 }
 
-// Para: Samu, como me dijiste que no usabamos esta funcion lo que he hecho
-// ha sido sacar todos los IF del main y meterlo todo en esta funcion para que sea todo mas modular y limpio :)
+void eliminarCliente(int fd_cliente){
+
+    int idx = -1;
+    for(int i = 0; i < numClientes; i++){
+        if (clientes[i].fd == fd_cliente){
+            idx = i;
+            break;
+        }
+    }
+
+    if (idx != -1){
+        if (clientes[idx].estado == 4) { // si es 4 su estado, el cliente se encuentra en partida
+            abandonarPartida(&clientes[idx]);
+        }
+
+        close(fd_cliente);
+        FD_CLR(fd_cliente, &readfds);
+
+        for(; idx < numClientes - 1; idx++){
+            clientes[idx] = clientes[idx + 1];
+        }
+        numClientes--;
+
+        printf("El cliente del socket %d ha sido eliminado correctamente.\n", fd_cliente);
+    }
+}
+
+// logica de casillas
+
+int parsearCasilla(const char *casilla, int *f, int *c){
+    
+    if (strlen(casilla) != 2){
+        return 0;
+    }
+
+    *f = casilla[0] - 'A';
+    *c = casilla[1] - '1';
+    // jugamos con los valores numericos en ascii de las letras y numeros, si 'A' es 65 y 'B' es 66, cuando el usuario inserte 'B3' como casilla, *f contendra 66 - 65 = 1
+
+    if (*f < 0; || *f >= FILAS || *c < 0 || *c > COLS){
+        return 0;
+    }
+    return 1;
+}
+
+
+
+int sonAdyacentes(int f1, int c1, int f2, int c2){
+    // hace el valor absoluto de las casillas y columnas para ver si estan adyacentes o no
+    int df = abs(f1 - f2);
+    int dc = abs(c1 - c2);
+
+    return (df == 1 && dc == 0) || (df == 0 && dc == 1);
+}
+
+
+
+void avanzarTurno (Partida p){
+    p->turno = 1-p->turno;
+
+    if(p->turno == 0){
+        p->numTurnos++;
+    }
+    // establecemos el limite de partidas
+    if (p->numTurnos >= 10) { 
+        finalizarPartida(p);
+        return;
+    }
+
+    // comprobamos si alguien ha sido eliminado, es decir que no este en ninguna casilla
+    int vivos[2]={0, 0};
+    for(int i=0; i<FILAS; i++){
+        for(int j=0; j<COLS; j++){
+            if(p->dueno[i][j] == 1){
+                vivos[0] = 1;
+            }else if (p->dueno[i][j] == 2){
+                vivos[1] = 1;
+            }
+        }
+        if (!vivos[0] || !vivos[1]) {
+        finalizarPartida(p);
+        return;
+    }
+    
+    Clientesiguiente = buscarCliente(p->fd[p->turno]); // buscamos al cliente nuevo
+        if(siguiente){
+            enviar(siguiente->fd, "+Ok. Es tu turno");
+        }
+    }
+}
+    
+// FUNCION COMPARTIDA POR CONQUISTAR, ATACAR Y REFORZAR
+int validarAccion(Cliente *c, char *arg, int *f1, int *c1, int *f2, int *c2, int *uds) {
+
+    // comprobaciones de errores comunes en las tres funciones
+    if (c->estado != 4){
+        enviar(c->fd, "-Err. No estas dentro de una partida");
+        return 0;
+    }
+
+    Partida *p = &partidas[c->partida];
+    if (p->turno != c->jugador){
+        enviar(c->fd, "-Err. No es tu turno");
+        return 0;
+    }
+
+    char cas1[10], cas2[10];
+    if (sscanf(arg, "%s %s %d", cas1, cas2, uds) != 3){
+        enviar(c->fd, "-Err. Formato incorrecto");
+        return 0;
+    }
+
+    if (!parsearCasilla(cas1, f1, c1) || !parsearCasilla(cas2, f2, c2)) {
+        enviar(c->fd, "-Err. Coordenadas invalidas");
+        return 0;
+    }
+
+    if (!sonAdyacentes(*f1, *c1, *f2, *c2)) {
+        enviar(c->fd, "-Err. Los territorios no son adyacentes");
+        return 0;
+    }
+
+    if (p->dueno[*f1][*c1] != c->jugador + 1){
+        enviar(c->fd, "-Err. El territorio de origen no te pertenece");
+        return 0;
+    }
+
+    if (*uds <= 0 || *uds > p->unidades[*f1][*c1]){
+        enviar(c->fd, "-Err. No dispones de suficientes unidades en el origen");
+        return 0;
+    }
+
+    return 1;
+}
+
+void cmdConquistar(Cliente *c, char *arg){
+    int f1, f2, c1, c2, uds; // definimos variables
+
+    if(!validarAccion(c, arg, &f1, &c1, &f2, &c2, &uds)){
+        return;
+    }
+    
+    Partida *p = &partidas[c->partida];
+
+    if(p->dueno[f2][c2] != 0){ // para la conquista el territorio debe ser neutral
+        enviar(c->fd, "-Err. El territorio destino no es neutral");
+    }
+
+    // modificamos la memoria del servidor y actualizamos la matriz
+    p->unidades[f1][c1] -= uds;
+    p->dueno[f2][c2] = c->jugador = 1;
+    p->unidades[f2][c2] = uds;
+
+    // confirmar al cliente y avanzar en el turno
+    char resp[100];
+    snprintf(resp, sizeof(resp), "+OK. Territorio %c%d conquistado.", f2 + 'A', c2 = '1');
+    enviar(c->fd, resp);
+    
+    avanzarTurno(p);
+}
+
+void cmdReforzar(Cliente *c, char *arg){
+
+    int f1, c1, f2, c2, uds;
+    // validamos que la accion es posible
+    if (!validarAccion(c, arg, &f1, &c1, &f2, &c2, &uds)){
+        return;
+    }
+
+    Partida *p = &partidas[c->partida];
+    
+    // No podemos reforzar un territorio que no nos pertenece
+    if (p->dueno[f2][c2] != c->jugador + 1){
+        enviar(c->fd, "-Err. El territorio destino no te pertenece");
+        return;
+    }
+
+    p->unidades[f1][c1] -= uds;
+    p->unidades[f2][c2] += uds;
+
+    enviar(c->fd, "+Ok. Territorio reforzado");
+    avanzarTurno(p);
+}
+
+void cmdAtacar(Cliente *c, char *arg){
+    int f1, c1, f2, c2, uds;
+    
+    if(!validarAccion(c, arg, &f1, &c1, &f2, &c2, &uds)){
+        return;
+    }
+    
+    Partida *p = &partidas[c->partida];
+    
+    if (p->dueno[f2][c2] == 0 || p->dueno[f2][c2] == c->jugador + 1){
+        enviar(c->fd, "-Err. El territorio destino no pertenece al enemigo");
+        return;
+    }
+
+    int def_uds = p->unidades[f2][c2];
+    p->unidades[f1][c1] -= uds;
+
+    char resp_atk[150];
+    char resp_def[150];
+    Cliente *enemigo = buscarCliente(p->fd[1 - c->jugador]);
+    
+    if (uds > def_uds) {
+        p->dueno[f2][c2] = c->jugador + 1;
+        p->unidades[f2][c2] = uds;
+        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has conquistado el territorio %c%d", f2 + 'A', c2 + '1');
+        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%d y has perdido el territorio", f2 + 'A', c2 + '1');
+    } else {
+        snprintf(resp_atk, sizeof(resp_atk), "+Ok. Has perdido el ataque contra %c%d", f2 + 'A', c2 + '1');
+        snprintf(resp_def, sizeof(resp_def), "+Ok. Te han atacado en %c%d y has defendido con exito", f2 + 'A', c2 + '1');
+    }
+    
+    enviar(c->fd, resp_atk);
+    if (enemigo != NULL) {
+        enviar(enemigo->fd, resp_def);
+    }
+    
+    avanzarTurno(p);
+    
+}
+
 void procesarMensaje(Cliente *c, char *msg)
 {
     char cmd[MSG_SIZE] = "", arg[MSG_SIZE] = "";
@@ -342,45 +560,31 @@ void procesarMensaje(Cliente *c, char *msg)
     } else if (strcmp(cmd, "ESTADO") == 0) {
         cmdEstado(c);
     } else if (strcmp(cmd, "SALIR") == 0) {
-        ;   // el cliente cierra su socket y el main lo elimina al detectarlo
-    } else if (strcmp(cmd, "CONQUISTAR") == 0 || strcmp(cmd, "ATACAR") == 0 ||
-             strcmp(cmd, "REFORZAR") == 0 || strcmp(cmd, "PASAR") == 0) {
-        if (c->estado != 4) {
+        eliminarCliente(c->fd);   // el cliente cierra su socket y el main lo elimina al detectarlo
+    } else if (strcmp(cmd, "PASAR") == 0){
+        if (c->estado != 4){
             enviar(c->fd, "-Err. No estas dentro de una partida");
         } else {
-            enviar(c->fd, "-Err. Comando todavia no implementado");
+            Partida *p = &partidas[c->partida];
+            if (p->turno != c->jugador) {
+                enviar(c->fd, "-Err. No es tu turno");
+            } else {
+                enviar(c->fd, "+Ok. Turno pasado");
+                avanzarTurno(p);
+            }
         }
+    } else if (strcmp(cmd, "CONQUISTAR") == 0){
+        cmdConquistar(c, arg);
+    } else if (strcmp(cmd, "REFORZAR") == 0){
+        cmdReforzar(c, arg);
+    } else if (strcmp(cmd, "ATACAR") == 0){
+        cmdAtacar(c, arg);
     } else {
         enviar(c->fd, "-Err. Comando no reconocido");
     }
 }
 
-void eliminarCliente(int fd_cliente){
 
-    int idx = -1;
-    for(int i = 0; i < numClientes; i++){
-        if (clientes[i].fd == fd_cliente){
-            idx = i;
-            break;
-        }
-    }
-
-    if (idx != -1){
-        if (clientes[idx].estado == 4) { // si es 4 su estado, el cliente se encuentra en partida
-            abandonarPartida(&clientes[idx]);
-        }
-
-        close(fd_cliente);
-        FD_CLR(fd, &readfds);
-
-        for(; idx < numClientes - 1; idx++){
-            clientes[idx] = clientes[idx + 1];
-        }
-        numClientes--;
-
-        printf("El cliente del socket %d ha sido eliminado correctamente.\n", fd_cliente);
-    }
-}
 
 int main(){
 
@@ -471,6 +675,7 @@ int main(){
                         enviar(new_sd, "+Ok. Usuario conectado");
                     } else {
                         enviar(new_sd, "-Err. Demasiados Clientes");
+                        sleep(1); // sleep para evitar condiciones de carrera (damos tiempo a enviar el mensaje antes de cerrar el socket)
                         close(new_sd);
                     }
 
@@ -492,21 +697,7 @@ int main(){
                     } else {
                         // recibidos == 0 -> cliente cerro la conexion
                         // recibidos == -1 -> error en la lectura
-                        printf("El cliente del socket %d se ha desconectado\n", i);
-                        if (idx != -1) abandonarPartida(&clientes[idx]);
-                        close(i);
-                        FD_CLR(i, &readfds);
-
-                        // borramos sobreescribiendo los sockets uno a uno, pasando todos una posicion a la izquierda desde el que se ha desconectado
-                        if (idx != -1){
-                            for (; idx< numClientes - 1; idx++){
-                                clientes[idx] = clientes[idx + 1];
-                            }
-                            numClientes--;
-                        }
-
                         eliminarCliente(i);
-
                     }
                 }
             }
