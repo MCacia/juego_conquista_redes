@@ -44,16 +44,14 @@ int numClientes = 0;
 Partida partidas[MAX_PARTIDAS];
 fd_set readfds; // array de sockets de cliente
 
-void enviar(int fd, const char *msg)
-{
+void enviar(int fd, const char *msg) {
     char buf[MSG_SIZE];
     snprintf(buf, sizeof(buf), "%s\n", msg);
     send(fd, buf, strlen(buf), 0);
 }
 
 
-int existe_usuario(const char *user)
-{
+int existe_usuario(const char *user) {
     FILE *f = fopen(FICHERO_USUARIOS, "r"); // abrimos el fichero de usuarios
     char u[MAX_USER], p[MAX_USER];          // creamos las variables de usuario y contraseña
     if (!f)
@@ -85,16 +83,14 @@ int passwordCorrecta(const char *user, const char *pass) {
 }
 
 // Devuelve 1 si ya hay OTRO cliente validado (estado >= 2) con ese nombre de usuario
-int usuarioYaConectado(const Cliente *c, const char *nombre)
-{
+int usuarioYaConectado(const Cliente *c, const char *nombre) {
     for (int i = 0; i < numClientes; i++)
         if (clientes[i].fd != c->fd && clientes[i].estado >= 2 && strcmp(clientes[i].nombre, nombre) == 0)
             return 1;
     return 0;
 }
 
-void login(Cliente *c, char *cmd, char *arg)
-{
+void login(Cliente *c, char *cmd, char *arg) {
 
     // Comprobamos el usuario
     if (strcmp(cmd, "USUARIO") == 0){
@@ -177,8 +173,7 @@ int registrar_usuario(char *usuario, char *password) {
 
 
 
-void registro(Cliente *c, char *arg)
-{
+void registro(Cliente *c, char *arg) {
     char user[MSG_SIZE], pass[MSG_SIZE], extra[MSG_SIZE];
 
     if (c->estado != 0){
@@ -201,14 +196,14 @@ void registro(Cliente *c, char *arg)
 }
 
 // Devuelve un puntero al cliente que tiene ese socket
-Cliente *buscarCliente(int fd){
-    for (int i = 0; i < numClientes; i++)
+Cliente *buscarCliente(int fd) {
+   for (int i = 0; i < numClientes; i++)
         if (clientes[i].fd == fd) return &clientes[i];
     return NULL;
 }
 
 // Si el cliente estaba jugando, avisa al oponente y libera la partida
-void abandonarPartida(Cliente *c){
+void abandonarPartida(Cliente *c) {
     if (c->estado != 4) return;
 
     Partida *p = &partidas[c->partida];
@@ -222,6 +217,17 @@ void abandonarPartida(Cliente *c){
     p->activa = 0;
 }
 
+// Envia las instrucciones de uso del programa
+void cmdAyudaInicio(int fd) {
+    enviar(fd, "---- MANUAL DE INICIO -----");
+    enviar(fd, "REGISTRO : Registrar usuario nuevo en la BB.DD. Uso: REGISTRO <name> <password>");
+    enviar(fd, "USUARIO : Iniciar sesion como un usuario existente. Uso: USUARIO <name>");
+    enviar(fd, "PASSWORD : Autenticar la identidad del usuario usando la contrasena. Uso: PASSWORD <password>");
+    enviar(fd, "INICIAR-PARTIDA : Iniciar una nueva partida. Uso: INICIAR-PARTIDA");
+    enviar(fd, "SALIR : Abandonar el servidor");
+    enviar(fd, "---------------------------");
+}
+
 // Envia las instrucciones del juego respetando el límite de búfer
 void cmdAyuda(Cliente *c) {
     enviar(c->fd, "+Ok. --- MANUAL DE JUEGO ---");
@@ -231,6 +237,7 @@ void cmdAyuda(Cliente *c) {
     enviar(c->fd, "REFORZAR [origen] [destino] [uds] : Mueve tropas propias");
     enviar(c->fd, "PASAR : Cede el turno al rival");
     enviar(c->fd, "SALIR : Abandona el servidor");
+    enviar(c->fd, "----------------------------");
 }
 
 // Crea la partida entre a (J1) y b (J2)
@@ -759,6 +766,7 @@ int main(){
 
                         printf("Cliente conectado desde %s:%d (socket %d)\n", inet_ntoa(from.sin_addr), ntohs(from.sin_port), new_sd);
                         enviar(new_sd, "+Ok. Usuario conectado");
+                        cmdAyudaInicio(new_sd);
                     } else {
                         enviar(new_sd, "-Err. Demasiados Clientes");
                         sleep(1); // sleep para evitar condiciones de carrera (damos tiempo a enviar el mensaje antes de cerrar el socket)
