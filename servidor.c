@@ -84,6 +84,15 @@ int passwordCorrecta(const char *user, const char *pass) {
     return 0;
 }
 
+// Devuelve 1 si ya hay OTRO cliente validado (estado >= 2) con ese nombre de usuario
+int usuarioYaConectado(const Cliente *c, const char *nombre)
+{
+    for (int i = 0; i < numClientes; i++)
+        if (clientes[i].fd != c->fd && clientes[i].estado >= 2 && strcmp(clientes[i].nombre, nombre) == 0)
+            return 1;
+    return 0;
+}
+
 void login(Cliente *c, char *cmd, char *arg)
 {
 
@@ -99,6 +108,10 @@ void login(Cliente *c, char *cmd, char *arg)
         }
 
         if (existe_usuario(arg)){
+            if (usuarioYaConectado(c, arg)){
+                enviar(c->fd, "-Err. Usuario ya conectado desde otro cliente");
+                return;
+            }
             strcpy(c->nombre, arg);   // guardamos quién es
             c->estado = 1; // ahora toca la contraseña
             enviar(c->fd, "+Ok. Usuario correcto");
@@ -116,6 +129,13 @@ void login(Cliente *c, char *cmd, char *arg)
         }
 
         if (passwordCorrecta(c->nombre, arg)){
+            // comprobacion final: otro cliente pudo validarse con este usuario mientras tanto
+            if (usuarioYaConectado(c, c->nombre)){
+                c->estado = 0;
+                c->nombre[0] = '\0';
+                enviar(c->fd, "-Err. Usuario ya conectado desde otro cliente");
+                return;
+            }
             c->estado = 2;
             enviar(c->fd, "+Ok. Usuario validado");
         }
